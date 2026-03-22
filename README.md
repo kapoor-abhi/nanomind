@@ -128,23 +128,40 @@ Fine-tunes the model on conversational data using a **masked loss** — only ass
 
 ## Results
 
-### Pretraining (10K steps)
+### 1. Pretraining
+The model achieved a validation loss of **3.6598** and a perplexity of **12.64** after 10,000 steps (approximately one-third of the planned training).
 
-| Metric | Value |
-|---|---|
-| Validation loss | 3.6598 |
-| Perplexity | 12.64 |
+#### Sample Outputs (Text Continuation)
+As a base model, NanoMind performs text continuation rather than instruction following. At this stage, it shows plausible but imperfect linguistic patterns.
 
-### Fine-tuning (4K steps)
+- **Prompt:** `The capital of France is`
+  - **Output:** `also home to the Blessed Virgin Islands, which has been a symbol of the struggle for the British economy. France, which was founded in 1807, is in a small business town...`
+- **Prompt:** `In 1969, NASA successfully`
+  - **Output:** `completed the Apollo-era mission, in which the moon-sized spacecraft has been detected from the moon...`
+- **Prompt:** `The best way to learn programming is`
+  - **Output:** `by downloading the software you need to know about the software. The software will automatically download the software you need to learn, and then you will have to get the software...`
+- **Prompt:** `Water boils at 100 degrees because`
+  - **Output:** `of the potential for heat to heat...`
 
-| Metric | Value |
-|---|---|
-| Training loss | 1.7822 |
-| Training time | ~97 minutes |
+### 2. Fine-tuning
+Supervised Fine-tuning (SFT) was conducted for 4,000 steps. The model correctly learned its identity and conversational behavior.
 
-**Identity Check:**
-> **Q:** Who are you?
-> **A:** I am NanoMind, a 25-million-parameter language model developed by Abhishek Kapoor.
+#### Training Progression (Final Steps)
+```text
+step 3900/4000 | loss 1.7766 | lr 1.01e-05 | grad 1.332 | 94.8min
+step 3925/4000 | loss 1.8432 | lr 1.01e-05 | grad 1.450 | 95.4min
+step 3950/4000 | loss 1.7235 | lr 1.00e-05 | grad 1.346 | 96.0min
+step 3975/4000 | loss 1.9449 | lr 1.00e-05 | grad 1.258 | 96.7min
+step 4000/4000 | loss 1.7822 | lr 1.00e-05 | grad 1.395 | 97.3min
+```
+
+#### Identity Test
+The model successfully learned its identity from the fine-tuning data, a strong indicator that the SFT pipeline and masked loss are functioning correctly.
+
+- **Q:** `Who are you?`
+  - **A:** `I am NanoMind, a 25-million-parameter language model developed by Abhishek Kapoor.`
+- **Q:** `Who created you?`
+  - **A:** `I was created by Abhishek Kapoor.`
 
 ---
 
