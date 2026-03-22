@@ -203,7 +203,3 @@ python 4_inference.py
 - Single GPU constraints.
 
 ---
-
-<p align="center">
-  Built with ❤️ by <b>Abhishek Kapoor</b>
-</p>
