@@ -10,11 +10,9 @@ from tokenizers import Tokenizer
 sys.path.insert(0, ".")
 from model import NanoMind, NanoMindConfig, save_checkpoint
 
-
-# Hyperparameters
-BATCH_SIZE   = 16       # safe for P100 with float16 + 512 context
+BATCH_SIZE   = 16
 BLOCK_SIZE   = 512
-GRAD_ACCUM   = 8        # effective batch = 16 x 8 = 128 sequences
+GRAD_ACCUM   = 8
 MAX_ITERS    = 30_000
 EVAL_EVERY   = 1_000
 SAVE_EVERY   = 5_000
@@ -31,25 +29,19 @@ CKPT_DIR.mkdir(exist_ok=True)
 
 for required in ["tokenizer.json", "train.bin", "val.bin"]:
     assert (DATA_DIR / required).exists(), (
-        f"Missing {DATA_DIR / required} -- run 1_prepare_data.py first"
+        f"Missing {DATA_DIR / required}"
     )
 
-
-# Device / AMP setup
 device      = "cuda" if torch.cuda.is_available() else "cpu"
 device_type = "cuda" if "cuda" in device else "cpu"
 
-ptdtype = torch.float16   # P100 has no bfloat16
+ptdtype = torch.float16
 ctx     = (nullcontext() if device_type == "cpu"
            else torch.amp.autocast(device_type=device_type, dtype=ptdtype))
 scaler  = torch.cuda.amp.GradScaler(enabled=(device_type == "cuda"))
 
 torch.manual_seed(42)
 
-# Detect GPU compute capability.
-# torch.compile (inductor backend) requires sm_70+ (Volta and above).
-# P100 = sm_60 (Pascal) -- compile will crash with cudaErrorNoKernelImageForDevice.
-# T4   = sm_75, A100 = sm_80, both are fine.
 COMPILE_OK = False
 FUSED_OK   = False
 if device_type == "cuda":
@@ -58,14 +50,11 @@ if device_type == "cuda":
     gpu_name   = torch.cuda.get_device_name(0)
     vram_gb    = torch.cuda.get_device_properties(0).total_memory / 1e9
     cc_major, cc_minor = torch.cuda.get_device_capability(0)
-    cc = cc_major * 10 + cc_minor   # e.g. 60 for P100, 75 for T4, 80 for A100
-    COMPILE_OK = (cc >= 70)         # inductor needs Volta (sm_70) or newer
-    FUSED_OK   = (cc >= 70)         # fused AdamW also needs sm_70+
+    cc = cc_major * 10 + cc_minor
+    COMPILE_OK = (cc >= 70)
+    FUSED_OK   = (cc >= 70)
     print(f"GPU    : {gpu_name}")
     print(f"VRAM   : {vram_gb:.1f} GB")
-    print(f"Compute: sm_{cc}  -->  torch.compile={'ENABLED' if COMPILE_OK else 'DISABLED (P100/sm_60 not supported)'}")
-    print(f"                       fused AdamW  ={'ENABLED' if FUSED_OK   else 'DISABLED (requires sm_70+)'}")
-
 
 def gpu_mem() -> str:
     if device_type != "cuda":
@@ -73,7 +62,6 @@ def gpu_mem() -> str:
     a = torch.cuda.memory_allocated() / 1e9
     r = torch.cuda.memory_reserved()  / 1e9
     return f"{a:.2f}/{r:.2f}GB"
-
 
 def cpu_ram() -> str:
     try:
@@ -85,22 +73,13 @@ def cpu_ram() -> str:
         pass
     return "N/A"
 
-
-# Data loader
 def get_batch(split: str) -> tuple:
-    """
-    Reads BATCH_SIZE random windows from the memory-mapped binary.
-    Re-opens the memmap every call to avoid a NumPy RAM leak.
-    CPU RAM cost per call: BATCH_SIZE * BLOCK_SIZE * 2 bytes = 16 KB.
-    """
     fname = "train.bin" if split == "train" else "val.bin"
-    # Re-open every call -- prevents cumulative RAM growth
     data  = np.memmap(str(DATA_DIR / fname), dtype=np.uint16, mode="r")
     n     = len(data)
 
     ix = torch.randint(n - BLOCK_SIZE, (BATCH_SIZE,))
 
-    # uint16 -> int64 for embedding; each cast is a tiny temporary array
     x = torch.stack([
         torch.from_numpy(data[i     : i +     BLOCK_SIZE].astype(np.int64))
         for i in ix
@@ -110,7 +89,7 @@ def get_batch(split: str) -> tuple:
         for i in ix
     ])
 
-    del data   # release memmap handle right away
+    del data
 
     if device_type == "cuda":
         x = x.pin_memory().to(device, non_blocking=True)
@@ -120,8 +99,6 @@ def get_batch(split: str) -> tuple:
 
     return x, y
 
-
-# Model
 tok        = Tokenizer.from_file(str(DATA_DIR / "tokenizer.json"))
 vocab_size = tok.get_vocab_size()
 print(f"\nVocab : {vocab_size:,}")
@@ -136,20 +113,13 @@ config = NanoMindConfig(
 )
 model = NanoMind(config).to(device)
 
-try:
-    if COMPILE_OK:
+if COMPILE_OK:
+    try:
         model = torch.compile(model)
         print("torch.compile() enabled")
-    else:
-        print("torch.compile() skipped (GPU sm_60 / P100 not supported by inductor)")
-except Exception as e:
-    print(f"torch.compile() skipped ({e})")
+    except Exception as e:
+        print(f"torch.compile() failed: {e}")
 
-if device_type == "cuda":
-    print(f"GPU after model load : {gpu_mem()}")
-
-
-# Optimizer
 decay_params   = [p for n, p in model.named_parameters()
                   if p.requires_grad and p.dim() >= 2]
 nodecay_params = [p for n, p in model.named_parameters()
@@ -162,15 +132,12 @@ try:
         lr=MAX_LR, betas=(0.9, 0.95), eps=1e-8,
         fused=FUSED_OK,
     )
-    print(f"AdamW: {'fused' if FUSED_OK else 'standard (fused requires sm_70+)'}")
-except TypeError:
+except (TypeError, Exception):
     optimizer = torch.optim.AdamW(
         [{"params": decay_params,   "weight_decay": WEIGHT_DECAY},
          {"params": nodecay_params, "weight_decay": 0.0}],
         lr=MAX_LR, betas=(0.9, 0.95), eps=1e-8,
     )
-    print("AdamW: standard")
-
 
 def get_lr(step: int) -> float:
     if step < WARMUP_ITERS:
@@ -180,8 +147,6 @@ def get_lr(step: int) -> float:
     p = (step - WARMUP_ITERS) / (MAX_ITERS - WARMUP_ITERS)
     return MIN_LR + 0.5 * (MAX_LR - MIN_LR) * (1.0 + math.cos(math.pi * p))
 
-
-# Evaluation
 @torch.no_grad()
 def estimate_loss() -> dict:
     model.eval()
@@ -193,23 +158,20 @@ def estimate_loss() -> dict:
             with ctx:
                 _, loss = model(X, Y)
             total += loss.item()
-            del X, Y, loss    # free GPU memory each iteration
+            del X, Y, loss
         results[split] = total / EVAL_STEPS
     model.train()
     if device_type == "cuda":
         torch.cuda.empty_cache()
     return results
 
-
-# Training loop
 eff_tokens = BATCH_SIZE * GRAD_ACCUM * BLOCK_SIZE
 
 print(f"\n{'='*60}")
 print("NanoMind -- Pre-training")
-print(f"  Effective batch : {BATCH_SIZE} x {GRAD_ACCUM} = {BATCH_SIZE*GRAD_ACCUM} seqs")
+print(f"  Effective batch : {BATCH_SIZE*GRAD_ACCUM} seqs")
 print(f"  Tokens/step     : {eff_tokens:,}")
 print(f"  Total steps     : {MAX_ITERS:,}")
-print(f"  Est. tokens     : {eff_tokens*MAX_ITERS/1e9:.2f}B")
 print(f"{'='*60}\n")
 
 best_val   = float("inf")
@@ -218,12 +180,10 @@ t_log      = time.time()
 optimizer.zero_grad(set_to_none=True)
 
 for step in range(1, MAX_ITERS + 1):
-
     lr = get_lr(step)
     for pg in optimizer.param_groups:
         pg["lr"] = lr
 
-    # -- Gradient accumulation --------------------------------
     total_loss = 0.0
     for _ in range(GRAD_ACCUM):
         X, Y = get_batch("train")
@@ -232,18 +192,16 @@ for step in range(1, MAX_ITERS + 1):
             scaled  = loss / GRAD_ACCUM
         scaler.scale(scaled).backward()
         total_loss += loss.item()
-        del X, Y, loss, scaled   # free GPU tensors each micro-step
+        del X, Y, loss, scaled
 
     avg_loss = total_loss / GRAD_ACCUM
 
-    # -- Optimiser step ---------------------------------------
     scaler.unscale_(optimizer)
     grad_norm = nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
     scaler.step(optimizer)
     scaler.update()
     optimizer.zero_grad(set_to_none=True)
 
-    # -- Logging every 100 steps ------------------------------
     if step % 100 == 0:
         now   = time.time()
         dt    = now - t_log
@@ -256,29 +214,24 @@ for step in range(1, MAX_ITERS + 1):
             f"{(now-t0)/60:.1f}min | GPU:{gpu_mem()} | CPU:{cpu_ram()}"
         )
 
-    # -- Evaluate ---------------------------------------------
     if step % EVAL_EVERY == 0:
         losses = estimate_loss()
         print(f"\n{'--'*30}")
-        print(f"  EVAL @ {step:,} | train={losses['train']:.4f} | val={losses['val']:.4f} | GPU:{gpu_mem()}")
+        print(f"  EVAL @ {step:,} | train={losses['train']:.4f} | val={losses['val']:.4f}")
         if losses["val"] < best_val:
             best_val = losses["val"]
             save_checkpoint(model, optimizer, step, best_val,
                             str(CKPT_DIR / "best_pretrain.pt"))
-            print(f"  New best val={best_val:.4f} saved.")
         print(f"{'--'*30}\n")
 
-    # -- Periodic checkpoint ----------------------------------
     if step % SAVE_EVERY == 0:
         save_checkpoint(model, optimizer, step, avg_loss,
                         str(CKPT_DIR / f"pretrain_step{step:06d}.pt"))
-        print(f"  Checkpoint saved @ step {step}")
         if device_type == "cuda":
             torch.cuda.empty_cache()
 
 print(f"\nDone. Best val loss: {best_val:.4f}")
 
-# Quick generation test
 raw_model = model._orig_mod if hasattr(model, "_orig_mod") else model
 raw_model.eval()
 BOS_ID = tok.token_to_id("<bos>")
