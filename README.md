@@ -150,14 +150,25 @@ Fine-tunes the model on conversational data using a **masked loss** — only ass
 
 ## Datasets
 
-### Pretraining
-Assembled from WikiText-103, FineWeb-Edu, OpenWebText, and TinyTextbooks.
-- **Total trained:** ~655M tokens.
+### Pretraining 
+The model was pretrained on a balanced mix of high-quality raw text to build a strong linguistic foundation.
+
+| Dataset | Type | Tokens |
+|---|---|---|
+| **WikiText-103** | Wikipedia (v1-raw) | ~100M |
+| **FineWeb-Edu** | Educational Web Content | ~350M |
+| **OpenWebText** | Reddit-linked Web Content | ~150M |
+| **TinyTextbooks** | Educational Material | ~55M |
+| **Total Trained** | | **~655M** |
 
 ### Fine-tuning
-- **Identity QA:** 1,500 hand-crafted pairs.
-- **OpenHermes-2.5:** 200,000 GPT-4 quality samples.
-- **Alpaca-Cleaned:** 52,000 instruction-following samples.
+Supervised Fine-tuning (SFT) was performed using a combination of identity-awareness and general instruction-following data.
+
+| Dataset | Type | Samples |
+|---|---|---|
+| **Identity QA** | Hand-crafted Persona Data | 1,500 |
+| **OpenHermes-2.5** | GPT-4 Quality Conversations | 200,000 |
+| **Alpaca-Cleaned** | Cleaned Instruction Following | 52,000 |
 
 ---
 
