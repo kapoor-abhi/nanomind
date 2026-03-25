@@ -187,30 +187,6 @@ Supervised Fine-tuning (SFT) was performed using a combination of identity-aware
 | **OpenHermes-2.5** | GPT-4 Quality Conversations | 200,000 |
 | **Alpaca-Cleaned** | Cleaned Instruction Following | 52,000 |
 
----
-
-## How to Run
-
-### 1. Requirements
-```bash
-pip install torch==2.3.1 tokenizers numpy tqdm
-```
-
-### 2. Prepare Data
-```bash
-python 1_prepare_data.py
-```
-
-### 3. Training
-```bash
-python 2_pretrain.py
-python 3_finetune.py
-```
-
-### 4. Interactive Chat
-```bash
-python 4_inference.py
-```
 
 ---
 
